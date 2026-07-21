@@ -3,5 +3,6 @@
 __pycache__/
 *.pyc
 
-data/raw/*
-!data/raw/.gitkeep
+data/raw/**
+!data/raw/**/
+!data/raw/**/.gitkeep

@@ -1,9 +1,14 @@
+import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 
 BASE_URL = "https://www.alphavantage.co/query"
+
+RAW_DATA_DIR = Path("data") / "raw" / "alpha_vantage" / "daily"
 
 load_dotenv()
 
@@ -64,3 +69,15 @@ print("API response validated successfully")
 print(f"Symbol: {symbol}")
 print(f"Latest trading date: {latest_date}")
 print(f"Latest record: {latest_record}")
+
+extracted_at = datetime.now(timezone.utc)
+timestamp = extracted_at.strftime("%Y%m%dT%H%M%SZ")
+
+RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+output_path = RAW_DATA_DIR / f"{symbol}_{timestamp}.json"
+
+with output_path.open("w", encoding="utf-8") as file:
+    json.dump(data, file, indent=2)
+
+print(f"Raw response saved to {output_path}")
