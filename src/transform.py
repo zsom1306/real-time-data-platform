@@ -1,9 +1,18 @@
 import json
 from pathlib import Path
 from typing import Any
+from datetime import date
+from decimal import Decimal, InvalidOperation
 
 REQUIRED_KEYS = ["Meta Data", "Time Series (Daily)"]
 RAW_DATA_DIR = Path("data") / "raw" / "alpha_vantage" / "daily"
+REQUIRED_DAILY_FIELDS = [
+    "1. open",
+    "2. high",
+    "3. low",
+    "4. close",
+    "5. volume",
+]
 
 def load_raw_snapshot(file_path: Path) -> dict[str, Any]:
     """"Load and validate one raw Alpha Vantage JSON snapshot."""
@@ -64,14 +73,83 @@ def find_latest_raw_snapshot(raw_data_dir: Path) -> Path:
 
     return latest_snapshot
 
+def transform_daily_records(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert raw Alpha Vantage daily data into clean records."""
+
+    metadata = raw_data["Meta Data"]
+    time_series = raw_data["Time Series (Daily)"]
+
+    symbol = metadata.get("2. Symbol")
+
+    if not isinstance(symbol, str) or not symbol.strip():
+        raise ValueError("Metadata does not contain a valid stock symbol")
+
+    clean_records = []
+
+    for trade_date_text, daily_values in time_series.items():
+        if not isinstance(daily_values, dict):
+            raise ValueError(f"Daily record for {trade_date_text} must be a JSON object")
+
+        missing_fields = [
+            field for field in REQUIRED_DAILY_FIELDS
+            if field not in daily_values
+        ]
+
+        if missing_fields:
+            raise ValueError(f"Daily record for {trade_date_text} is missing fields: {missing_fields}")
+
+        try:
+            trade_date = date.fromisoformat(trade_date_text)
+            open_price = Decimal(daily_values["1. open"])
+            high_price = Decimal(daily_values["2. high"])
+            low_price = Decimal(daily_values["3. low"])
+            close_price = Decimal(daily_values["4. close"])
+            volume = int(daily_values["5. volume"])
+        except (ValueError, TypeError, InvalidOperation) as error:
+            raise ValueError(
+                f"Daily record for {trade_date_text} contained an invalid value"
+            ) from error
+
+        if min(open_price, high_price, low_price, close_price) <= 0:
+            raise ValueError(f"Daily record for {trade_date_text} contains a non-positive price")
+
+        if high_price < max(open_price, low_price, close_price):
+            raise ValueError(f"Daily record for {trade_date_text} has an invalid high price")
+
+        if low_price > min(open_price, high_price, close_price):
+            raise ValueError(f"Daily record for {trade_date_text} has an invalid low price")
+
+        if volume < 0:
+            raise ValueError(f"Daily record for {trade_date_text} contains negative volume")
+
+        clean_record = {
+            "symbol": symbol.upper(),
+            "trade_date": trade_date,
+            "open": open_price,
+            "high": high_price,
+            "low": low_price,
+            "close": close_price,
+            "volume": volume,
+        }
+
+        clean_records.append(clean_record)
+
+    clean_records.sort(
+        key=lambda record: record["trade_date"]
+    )
+
+    return clean_records
+
 def main() -> None:
     latest_snapshot = find_latest_raw_snapshot(RAW_DATA_DIR)
     raw_data = load_raw_snapshot(latest_snapshot)
-
-    record_count = len(raw_data["Time Series (Daily)"])
+    clean_records = transform_daily_records(raw_data)
 
     print(f"Loaded raw snapshot: {latest_snapshot}")
-    print(f"Daily records found: {record_count}")
+    print(f"Clean records created: {len(clean_records)}")
+    print(f"Oldest record: {clean_records[0]}")
+    print(f"Newest record: {clean_records[-1]}")
+
 
 if __name__ == "__main__":
     main()
