@@ -10,74 +10,92 @@ BASE_URL = "https://www.alphavantage.co/query"
 
 RAW_DATA_DIR = Path("data") / "raw" / "alpha_vantage" / "daily"
 
+DEFAULT_SYMBOL = "AAPL"
+
 load_dotenv()
 
-api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
+def get_required_api_key() -> str:
+    """Return the Alpha Vantage API key or raise a clear error."""
 
-if not api_key:
-    raise ValueError("ALPHA_VANTAGE_API_KEY was not found")
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
 
+    if api_key is None or not api_key.strip():
+        raise RuntimeError("ALPHA_VANTAGE_API_KEY was not found or is blank")
 
-symbol = "AAPL"  
+    return api_key
 
-params = {
-    "function": "TIME_SERIES_DAILY",
-    "symbol": symbol,
-    "outputsize": "compact",
-    "datatype": "json",
-    "apikey": api_key
-}
+def extract_daily_data(symbol: str = DEFAULT_SYMBOL) -> Path:
+    """Extract daily market data and return the saved snapshot path."""
 
-response = requests.get(
-    BASE_URL,
-    params=params,
-    timeout=30,
-)
+    normalized_symbol = symbol.strip().upper()
 
-response.raise_for_status()
+    if not normalized_symbol:
+        raise ValueError("The stock symbol cannot be blank")
 
-data = response.json()
+    api_key = get_required_api_key()
 
-if "Error Message" in data:
-    raise ValueError(f"Alpha Vantage returned an error: {data['Error Message']}")
+    params = {
+        "function": "TIME_SERIES_DAILY",
+        "symbol": normalized_symbol,
+        "outputsize": "compact",
+        "datatype": "json",
+        "apikey": api_key
+    }
 
-if "Information" in data:
-    raise RuntimeError(f"Alpha Vantage returned information: {data['Information']}")
+    response = requests.get(
+        BASE_URL,
+        params=params,
+        timeout=30,
+    )
 
-if "Note" in data:
-    raise RuntimeError(f"Alpha Vantage returned a note: {data['Note']}")
+    response.raise_for_status()
 
-required_keys = ["Meta Data", "Time Series (Daily)"]
+    data = response.json()
 
-missing_keys = [
-    key for key in required_keys
-    if key not in data
-]
+    if "Error Message" in data:
+        raise ValueError(f"Alpha Vantage returned an error: {data['Error Message']}")
 
-if missing_keys:
-    raise ValueError(f"Response is missing expected keys: {missing_keys}")
+    if "Information" in data:
+        raise RuntimeError(f"Alpha Vantage returned information: {data['Information']}")
 
-time_series = data["Time Series (Daily)"]
+    if "Note" in data:
+        raise RuntimeError(f"Alpha Vantage returned a note: {data['Note']}")
 
-if not time_series:
-    raise ValueError("The daily time series is empty")
+    required_keys = ["Meta Data", "Time Series (Daily)"]
 
-latest_date = next(iter(time_series))
-latest_record = time_series[latest_date]
+    missing_keys = [
+        key for key in required_keys
+        if key not in data
+    ]
 
-print("API response validated successfully")
-print(f"Symbol: {symbol}")
-print(f"Latest trading date: {latest_date}")
-print(f"Latest record: {latest_record}")
+    if missing_keys:
+        raise ValueError(f"Response is missing expected keys: {missing_keys}")
 
-extracted_at = datetime.now(timezone.utc)
-timestamp = extracted_at.strftime("%Y%m%dT%H%M%SZ")
+    time_series = data["Time Series (Daily)"]
 
-RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if not time_series:
+        raise ValueError("The daily time series is empty")
 
-output_path = RAW_DATA_DIR / f"{symbol}_{timestamp}.json"
+    latest_date = next(iter(time_series))
+    latest_record = time_series[latest_date]
 
-with output_path.open("w", encoding="utf-8") as file:
-    json.dump(data, file, indent=2)
+    extracted_at = datetime.now(timezone.utc)
+    timestamp = extracted_at.strftime("%Y%m%dT%H%M%SZ")
 
-print(f"Raw response saved to {output_path}")
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    output_path = RAW_DATA_DIR / f"{normalized_symbol}_{timestamp}.json"
+
+    with output_path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2)
+
+    print("API response validated successfully")
+    print(f"Symbol: {normalized_symbol}")
+    print(f"Latest trading date: {latest_date}")
+    print(f"Latest record: {latest_record}")
+    print(f"Raw response saved to {output_path}")
+
+    return output_path
+
+if __name__ == "__main__":
+    extract_daily_data()

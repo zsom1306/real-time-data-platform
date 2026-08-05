@@ -88,6 +88,26 @@ def upsert_daily_prices(connection: psycopg.Connection, clean_records: list[dict
 
         return cursor.rowcount
 
+def load_daily_prices(clean_records: list[dict[str, Any]]) -> dict[str, int]:
+
+    """Load clean daily-price records and return load statistics."""
+
+    if not clean_records:
+        raise RuntimeError("No clean daily-price records were providing for loading.")
+
+    with create_database_connection() as connection:
+        rows_before_load = get_daily_price_count(connection)
+    
+        affected_rows = upsert_daily_prices(connection, clean_records)
+    
+        rows_after_load = get_daily_price_count(connection)
+
+    return {
+        "affected_rows": affected_rows,
+        "rows_before_load": rows_before_load,
+        "rows_after_load": rows_after_load,
+    }
+
 def load_latest_daily_prices() -> None:
     """Transform the latest raw snapshot and load it into PostgreSQL."""
 
@@ -97,21 +117,22 @@ def load_latest_daily_prices() -> None:
 
     clean_records = transform_daily_records(raw_data)
 
-    if not clean_records:
-        raise RuntimeError("The transformation produced no clean records to load.")
-
-    with create_database_connection() as connection:
-        rows_before_load = get_daily_price_count(connection)
-
-        affected_rows = upsert_daily_prices(connection, clean_records)
-
-        rows_after_load = get_daily_price_count(connection)
+    load_result = load_daily_prices(clean_records)
 
     print(f"Loaded raw snapshot: {latest_snapshot_path}")
     print(f"Clean records prepared: {len(clean_records)}")
-    print(f"Rows inserted or updated: {affected_rows}")
-    print(f"Table rows before load: {rows_before_load}")
-    print(f"Table rows after load: {rows_after_load}")
+    print(
+        "Rows inserted or updated: "
+        f"{load_result['affected_rows']}"
+    )
+    print(
+        "Table rows before load: "
+        f"{load_result['rows_before_load']}"
+    )
+    print(
+        "Table rows after load: "
+        f"{load_result['rows_after_load']}"
+    )
 
 
 if __name__ == "__main__":
