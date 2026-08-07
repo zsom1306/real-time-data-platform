@@ -1,8 +1,12 @@
+import logging
 import json
 from pathlib import Path
 from typing import Any
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from src.logging_config import configure_logging
+
+logger = logging.getLogger("src.transform")
 
 REQUIRED_KEYS = ["Meta Data", "Time Series (Daily)"]
 RAW_DATA_DIR = Path("data") / "raw" / "alpha_vantage" / "daily"
@@ -15,7 +19,7 @@ REQUIRED_DAILY_FIELDS = [
 ]
 
 def load_raw_snapshot(file_path: Path) -> dict[str, Any]:
-    """"Load and validate one raw Alpha Vantage JSON snapshot."""
+    """Load and validate one raw Alpha Vantage JSON snapshot."""
 
     if not file_path.exists():
         raise FileNotFoundError(f"Raw data file was not found: {file_path}")
@@ -26,6 +30,7 @@ def load_raw_snapshot(file_path: Path) -> dict[str, Any]:
     try:
         with file_path.open("r", encoding="utf-8") as file:
             data = json.load(file)
+
     except json.JSONDecodeError as error:
         raise ValueError(
             f"Raw data file does not contain valid JSON: {file_path}"
@@ -52,11 +57,16 @@ def load_raw_snapshot(file_path: Path) -> dict[str, Any]:
     
     if not time_series:
         raise ValueError("'Time Series (Daily)' contains no records")
+
+    logger.debug(
+        "Raw snapshot loaded and validated | path=%s",
+        file_path,
+    )
     
     return data
 
 def find_latest_raw_snapshot(raw_data_dir: Path) -> Path:
-    """Find the most recently created raw JSON snapshot."""
+    """Find the most recently modified raw JSON snapshot."""
 
     if not raw_data_dir.exists():
         raise FileNotFoundError(f"Raw data directory was not found: {raw_data_dir}")
@@ -69,6 +79,13 @@ def find_latest_raw_snapshot(raw_data_dir: Path) -> Path:
     latest_snapshot = max(
         snapshot_paths,
         key=lambda path: path.stat().st_mtime,
+    )
+
+    logger.debug(
+        "Latest raw snapshot selected | "
+        "path=%s | available_snapshots=%d",
+        latest_snapshot,
+        len(snapshot_paths),
     )
 
     return latest_snapshot
@@ -84,7 +101,8 @@ def transform_daily_records(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(symbol, str) or not symbol.strip():
         raise ValueError("Metadata does not contain a valid stock symbol")
 
-    clean_records = []
+    normalized_symbol = symbol.strip().upper()
+    clean_records: list[dict[str, Any]] = []
 
     for trade_date_text, daily_values in time_series.items():
         if not isinstance(daily_values, dict):
@@ -123,7 +141,7 @@ def transform_daily_records(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
             raise ValueError(f"Daily record for {trade_date_text} contains negative volume")
 
         clean_record = {
-            "symbol": symbol.upper(),
+            "symbol": normalized_symbol,
             "trade_date": trade_date,
             "open": open_price,
             "high": high_price,
@@ -138,18 +156,46 @@ def transform_daily_records(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
         key=lambda record: record["trade_date"]
     )
 
+    logger.info(
+        "Daily transformation completed | "
+        "symbol=%s | record_count=%d",
+        normalized_symbol,
+        len(clean_records),
+    )
+
+    if clean_records:
+        logger.debug(
+            "Transformed record range | "
+            "oldest_trade_date=%s | newest_trade_date=%s",
+            clean_records[0]["trade_date"],
+            clean_records[-1]["trade_date"],
+        )
+
     return clean_records
 
 def main() -> None:
+    """Run the transform stage using the latest raw snapshot."""
+
     latest_snapshot = find_latest_raw_snapshot(RAW_DATA_DIR)
+
     raw_data = load_raw_snapshot(latest_snapshot)
+
     clean_records = transform_daily_records(raw_data)
 
-    print(f"Loaded raw snapshot: {latest_snapshot}")
-    print(f"Clean records created: {len(clean_records)}")
-    print(f"Oldest record: {clean_records[0]}")
-    print(f"Newest record: {clean_records[-1]}")
+    if not clean_records:
+        raise RuntimeError("The transform stage produced no clean records")
+
+    logger.debug(
+        "Transform details | "
+        "snapshot_path=%s | "
+        "oldest_record=%s | "
+        "newest_record=%s",
+        latest_snapshot,
+        clean_records[0],
+        clean_records[-1],
+    )
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

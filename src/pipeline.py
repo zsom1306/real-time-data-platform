@@ -1,8 +1,12 @@
+import logging
 from time import perf_counter
 
 from src.extract import extract_daily_data
 from src.load import load_daily_prices
+from src.logging_config import configure_logging
 from src.transform import (load_raw_snapshot, transform_daily_records)
+
+logger = logging.getLogger("src.pipeline")
 
 
 def run_pipeline() -> None:
@@ -10,42 +14,78 @@ def run_pipeline() -> None:
 
     pipeline_start_time = perf_counter()
 
-    print("Starting daily market-data pipeline.")
+    logger.info("Daily market-data pipeline started")
 
-    print("\n[1/3] Extracting daily market data...")
-    snapshot_path = extract_daily_data()
+    try:
+        logger.debug("Stage 1/3 started | stage=extract")
 
-    print("\n[2/3] Transforming raw market data...")
-    raw_data = load_raw_snapshot(snapshot_path)
-    clean_records = transform_daily_records(raw_data)
+        snapshot_path = extract_daily_data()
 
-    if not clean_records:
-        raise RuntimeError("The transform stage produced no clean records")
+        logger.debug(
+            "Stage 1/3 completed | "
+            "stage=extract | snapshot_path=%s",
+            snapshot_path,
+        )
 
-    print(f"Clean records prepared: {len(clean_records)}")
+        logger.debug("Stage 2/3 started | stage=transform")
 
-    print("\n[3/3] Loading records into PostgreSQL...")
-    load_result = load_daily_prices(clean_records)
+        raw_data = load_raw_snapshot(snapshot_path)
+
+        clean_records = transform_daily_records(raw_data)
+
+        if not clean_records:
+            raise RuntimeError(
+                "The transform stage produced no clean records"
+            )
+
+        logger.debug(
+            "Stage 2/3 completed | "
+            "stage=transform | clean_records=%d",
+            len(clean_records),
+        )
+
+        logger.debug("Stage 3/3 started | stage=load")
+
+        load_result = load_daily_prices(clean_records)
+
+        logger.debug(
+            "Stage 3/3 completed | "
+            "stage=load | affected_rows=%d | "
+            "rows_before=%d | rows_after=%d",
+            load_result["affected_rows"],
+            load_result["rows_before_load"],
+            load_result["rows_after_load"],
+        )
+
+    except Exception:
+        pipeline_duration = (
+            perf_counter() - pipeline_start_time
+        )
+
+        logger.exception(
+            "Daily market-data pipeline failed | "
+            "duration_seconds=%.2f",
+            pipeline_duration,
+        )
+
+        raise
 
     pipeline_duration = perf_counter() - pipeline_start_time
 
-    print("\nPipeline completed successfully.")
-    print(f"Raw snapshot: {snapshot_path}")
-    print(
-        "Rows inserted or updated: "
-        f"{load_result['affected_rows']}"
-    )
-    print(
-        "Table rows before load: "
-        f"{load_result['rows_before_load']}"
-    )
-    print(
-        "Table rows after load: "
-        f"{load_result['rows_after_load']}"
-    )
-    print(
-        f"Pipeline duration: {pipeline_duration:.2f} seconds"
+    logger.info(
+        "Daily market-data pipeline completed successfully | "
+        "snapshot_path=%s | "
+        "affected_rows=%d | "
+        "rows_before=%d | "
+        "rows_after=%d | "
+        "duration_seconds=%.2f",
+        snapshot_path,
+        load_result["affected_rows"],
+        load_result["rows_before_load"],
+        load_result["rows_after_load"],
+        pipeline_duration,
     )
 
 if __name__ == "__main__":
+    configure_logging()
     run_pipeline()

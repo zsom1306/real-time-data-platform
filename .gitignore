@@ -6,3 +6,5 @@ __pycache__/
 data/raw/**
 !data/raw/**/
 !data/raw/**/.gitkeep
+
+logs/

@@ -1,8 +1,10 @@
+import logging
 import os
 from typing import Any
 
 import psycopg
 from dotenv import load_dotenv
+from src.logging_config import configure_logging
 
 from src.transform import (
     RAW_DATA_DIR,
@@ -10,6 +12,8 @@ from src.transform import (
     load_raw_snapshot,
     transform_daily_records,
 )
+
+logger = logging.getLogger("src.load")
 
 load_dotenv()
 
@@ -66,13 +70,13 @@ def get_daily_price_count(connection: psycopg.Connection) -> int:
     """Return the total number of rows in the daily_prices table."""
 
     with connection.cursor() as cursor:
-         cursor.execute("SELECT COUNT(*) FROM market_data.daily_prices")
-         count_result = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) FROM market_data.daily_prices")
+        count_result = cursor.fetchone()
 
-         if count_result is None:
-             raise RuntimeError("PostgreSQL returned no daily price count.")
+        if count_result is None:
+            raise RuntimeError("PostgreSQL returned no daily price count.")
          
-         return count_result[0]
+        return count_result[0]
 
 def upsert_daily_prices(connection: psycopg.Connection, clean_records: list[dict[str, Any]]) -> int:
     """Insert new daily prices and update existing daily prices."""
@@ -93,7 +97,7 @@ def load_daily_prices(clean_records: list[dict[str, Any]]) -> dict[str, int]:
     """Load clean daily-price records and return load statistics."""
 
     if not clean_records:
-        raise RuntimeError("No clean daily-price records were providing for loading.")
+        raise RuntimeError("No clean daily-price records were provided for loading.")
 
     with create_database_connection() as connection:
         rows_before_load = get_daily_price_count(connection)
@@ -101,6 +105,14 @@ def load_daily_prices(clean_records: list[dict[str, Any]]) -> dict[str, int]:
         affected_rows = upsert_daily_prices(connection, clean_records)
     
         rows_after_load = get_daily_price_count(connection)
+
+    logger.info(
+        "Daily database load completed | "
+        "affected_rows=%d | rows_before=%d | rows_after=%d",
+        affected_rows,
+        rows_before_load,
+        rows_after_load,
+)
 
     return {
         "affected_rows": affected_rows,
@@ -117,23 +129,9 @@ def load_latest_daily_prices() -> None:
 
     clean_records = transform_daily_records(raw_data)
 
-    load_result = load_daily_prices(clean_records)
-
-    print(f"Loaded raw snapshot: {latest_snapshot_path}")
-    print(f"Clean records prepared: {len(clean_records)}")
-    print(
-        "Rows inserted or updated: "
-        f"{load_result['affected_rows']}"
-    )
-    print(
-        "Table rows before load: "
-        f"{load_result['rows_before_load']}"
-    )
-    print(
-        "Table rows after load: "
-        f"{load_result['rows_after_load']}"
-    )
+    load_daily_prices(clean_records)
 
 
 if __name__ == "__main__":
+    configure_logging()
     load_latest_daily_prices()

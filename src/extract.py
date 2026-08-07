@@ -1,12 +1,16 @@
+import logging
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from src.logging_config import configure_logging
 
 import requests
 from dotenv import load_dotenv
 
 BASE_URL = "https://www.alphavantage.co/query"
+
+logger = logging.getLogger("src.extract")
 
 RAW_DATA_DIR = Path("data") / "raw" / "alpha_vantage" / "daily"
 
@@ -52,6 +56,9 @@ def extract_daily_data(symbol: str = DEFAULT_SYMBOL) -> Path:
 
     data = response.json()
 
+    if not isinstance(data, dict):
+        raise ValueError("Expected the Alpha Vantage response to be a JSON object")
+
     if "Error Message" in data:
         raise ValueError(f"Alpha Vantage returned an error: {data['Error Message']}")
 
@@ -76,7 +83,7 @@ def extract_daily_data(symbol: str = DEFAULT_SYMBOL) -> Path:
     if not time_series:
         raise ValueError("The daily time series is empty")
 
-    latest_date = next(iter(time_series))
+    latest_date = max(time_series)
     latest_record = time_series[latest_date]
 
     extracted_at = datetime.now(timezone.utc)
@@ -89,13 +96,24 @@ def extract_daily_data(symbol: str = DEFAULT_SYMBOL) -> Path:
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
 
-    print("API response validated successfully")
-    print(f"Symbol: {normalized_symbol}")
-    print(f"Latest trading date: {latest_date}")
-    print(f"Latest record: {latest_record}")
-    print(f"Raw response saved to {output_path}")
+    logger.info(
+        "Daily extraction completed | "
+        "symbol=%s | latest_trade_date=%s | snapshot_path=%s",
+        normalized_symbol,
+        latest_date,
+        output_path,
+    )
+
+    logger.debug(
+        "Latest Alpha Vantage record | "
+        "symbol=%s | trade_date=%s | record=%s",
+        normalized_symbol,
+        latest_date,
+        latest_record,
+    )
 
     return output_path
 
 if __name__ == "__main__":
+    configure_logging()
     extract_daily_data()
