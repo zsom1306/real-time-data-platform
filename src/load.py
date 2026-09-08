@@ -120,18 +120,27 @@ def load_daily_prices(clean_records: list[dict[str, Any]]) -> dict[str, int]:
         "rows_after_load": rows_after_load,
     }
 
-def load_latest_daily_prices() -> None:
-    """Transform the latest raw snapshot and load it into PostgreSQL."""
+def load_latest_daily_prices(
+    symbol: str,
+) -> dict[str, int]:
+    snapshot_path = find_latest_raw_snapshot(
+        RAW_DATA_DIR,
+        symbol,
+    )
 
-    latest_snapshot_path = find_latest_raw_snapshot(RAW_DATA_DIR)
+    raw_data = load_raw_snapshot(
+        snapshot_path
+    )
 
-    raw_data = load_raw_snapshot(latest_snapshot_path)
+    clean_records = transform_daily_records(
+        raw_data
+    )
 
-    clean_records = transform_daily_records(raw_data)
-
-    load_daily_prices(clean_records)
+    return load_daily_prices(
+        clean_records
+    )
 
 
 if __name__ == "__main__":
     configure_logging()
-    load_latest_daily_prices()
+    load_latest_daily_prices("AAPL")

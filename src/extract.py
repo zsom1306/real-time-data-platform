@@ -89,9 +89,13 @@ def extract_daily_data(symbol: str = DEFAULT_SYMBOL) -> Path:
     extracted_at = datetime.now(timezone.utc)
     timestamp = extracted_at.strftime("%Y%m%dT%H%M%SZ")
 
-    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    symbol_data_dir = (
+        RAW_DATA_DIR
+        / normalized_symbol
+    )
+    symbol_data_dir.mkdir(parents=True, exist_ok=True)
 
-    output_path = RAW_DATA_DIR / f"{normalized_symbol}_{timestamp}.json"
+    output_path = symbol_data_dir / f"{normalized_symbol}_{timestamp}.json"
 
     with output_path.open("w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)

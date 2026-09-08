@@ -1,7 +1,7 @@
 import src.pipeline as pipeline
 import pytest
 
-def test_run_pipeline_coordinates_stages(
+def test_run_symbol_pipeline_coordinates_stages(
     monkeypatch,
 ):
     fake_snapshot_path = object()
@@ -10,7 +10,11 @@ def test_run_pipeline_coordinates_stages(
 
     call_log = []
 
-    def fake_extract_daily_data():
+    def fake_extract_daily_data(
+        symbol,
+    ):
+        assert symbol == "AAPL"
+
         call_log.append(
             "extract"
         )
@@ -39,6 +43,12 @@ def test_run_pipeline_coordinates_stages(
 
         return fake_clean_records
 
+    expected_result = {
+        "affected_rows": 100,
+        "rows_before_load": 100,
+        "rows_after_load": 101,
+    }
+
     def fake_load_daily_prices(
         clean_records,
     ):
@@ -48,11 +58,7 @@ def test_run_pipeline_coordinates_stages(
             "load_database"
         )
 
-        return {
-            "affected_rows": 100,
-            "rows_before_load": 100,
-            "rows_after_load": 101,
-        }
+        return expected_result
 
     monkeypatch.setattr(
         pipeline,
@@ -78,7 +84,11 @@ def test_run_pipeline_coordinates_stages(
         fake_load_daily_prices,
     )
 
-    pipeline.run_pipeline()
+    result = pipeline.run_symbol_pipeline(
+        "AAPL"
+    )
+
+    assert result is expected_result
 
     assert call_log == [
         "extract",
@@ -88,7 +98,7 @@ def test_run_pipeline_coordinates_stages(
     ]
 
 
-def test_run_pipeline_rejects_empty_transformation(
+def test_run_symbol_pipeline_rejects_empty_transformation(
     monkeypatch,
 ):
     fake_snapshot_path = object()
@@ -96,7 +106,11 @@ def test_run_pipeline_rejects_empty_transformation(
 
     call_log = []
 
-    def fake_extract_daily_data():
+    def fake_extract_daily_data(
+        symbol,
+    ):
+        assert symbol == "AAPL"
+
         call_log.append(
             "extract"
         )
@@ -158,10 +172,12 @@ def test_run_pipeline_rejects_empty_transformation(
     )
 
     with pytest.raises(
-        RuntimeError,
-        match="The transform stage produced no clean records",
+        ValueError,
+        match="Transformation produced no clean records",
     ):
-        pipeline.run_pipeline()
+        pipeline.run_symbol_pipeline(
+            "AAPL"
+        )
 
     assert call_log == [
         "extract",
@@ -207,7 +223,7 @@ def test_run_pipeline_rejects_empty_transformation(
         ),
     ],
 )
-def test_run_pipeline_propagates_stage_failure(
+def test_run_symbol_pipeline_propagates_stage_failure(
     monkeypatch,
     failing_stage,
     expected_calls,
@@ -222,7 +238,11 @@ def test_run_pipeline_propagates_stage_failure(
         f"{failing_stage} failed"
     )
 
-    def fake_extract_daily_data():
+    def fake_extract_daily_data(
+        symbol,
+    ):
+        assert symbol == "AAPL"
+
         call_log.append(
             "extract"
         )
@@ -305,8 +325,134 @@ def test_run_pipeline_propagates_stage_failure(
     with pytest.raises(
         RuntimeError
     ) as exception_info:
-        pipeline.run_pipeline()
+        pipeline.run_symbol_pipeline(
+            "AAPL"
+        )
 
     assert exception_info.value is expected_error
 
     assert call_log == expected_calls
+
+
+def test_run_pipeline_processes_configured_symbols(
+    monkeypatch,
+):
+    configured_symbols = [
+        "AAPL",
+        "MSFT",
+        "NVDA",
+    ]
+
+    call_log = []
+
+    def fake_load_configured_symbols():
+        call_log.append(
+            "load_config"
+        )
+
+        return configured_symbols
+
+    def fake_run_symbol_pipeline(
+        symbol,
+    ):
+        call_log.append(
+            symbol
+        )
+
+        return {
+            "affected_rows": 1,
+            "rows_before_load": 0,
+            "rows_after_load": 1,
+        }
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_configured_symbols",
+        fake_load_configured_symbols,
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "run_symbol_pipeline",
+        fake_run_symbol_pipeline,
+    )
+
+    result = pipeline.run_pipeline()
+
+    assert call_log == [
+        "load_config",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+    ]
+
+    assert set(result) == {
+        "AAPL",
+        "MSFT",
+        "NVDA",
+    }
+
+
+def test_run_pipeline_stops_after_symbol_failure(
+    monkeypatch,
+):
+    configured_symbols = [
+        "AAPL",
+        "MSFT",
+        "NVDA",
+    ]
+
+    call_log = []
+
+    expected_error = RuntimeError(
+        "MSFT pipeline failed"
+    )
+
+    def fake_load_configured_symbols():
+        return configured_symbols
+
+    def fake_run_symbol_pipeline(
+        symbol,
+    ):
+        call_log.append(
+            symbol
+        )
+
+        if symbol == "MSFT":
+            raise expected_error
+
+        if symbol == "NVDA":
+            pytest.fail(
+                "NVDA should not run after "
+                "MSFT fails"
+            )
+
+        return {
+            "affected_rows": 1,
+            "rows_before_load": 0,
+            "rows_after_load": 1,
+        }
+
+    monkeypatch.setattr(
+        pipeline,
+        "load_configured_symbols",
+        fake_load_configured_symbols,
+    )
+
+    monkeypatch.setattr(
+        pipeline,
+        "run_symbol_pipeline",
+        fake_run_symbol_pipeline,
+    )
+
+    with pytest.raises(
+        RuntimeError
+    ) as exception_info:
+        pipeline.run_pipeline()
+
+    assert exception_info.value is expected_error
+
+    assert call_log == [
+        "AAPL",
+        "MSFT",
+    ]

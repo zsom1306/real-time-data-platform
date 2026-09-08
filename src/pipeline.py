@@ -1,90 +1,118 @@
 import logging
-from time import perf_counter
+from time import perf_counter, sleep
 
 from src.extract import extract_daily_data
 from src.load import load_daily_prices
 from src.logging_config import configure_logging
 from src.transform import (load_raw_snapshot, transform_daily_records)
+from src.config import load_configured_symbols
 
 logger = logging.getLogger("src.pipeline")
 
+def run_symbol_pipeline(
+    symbol: str,
+) -> dict[str, int]:
+    logger.info(
+        "Symbol pipeline started | symbol=%s",
+        symbol,
+    )
 
-def run_pipeline() -> None:
-    """Run the complete daily market-data ETL pipeline."""
+    snapshot_path = extract_daily_data(
+        symbol
+    )
 
-    pipeline_start_time = perf_counter()
+    raw_data = load_raw_snapshot(
+        snapshot_path
+    )
 
-    logger.info("Daily market-data pipeline started")
+    clean_records = transform_daily_records(
+        raw_data
+    )
+
+    if not clean_records:
+        raise ValueError(
+            "Transformation produced no clean "
+            f"records for symbol {symbol}"
+        )
+
+    load_result = load_daily_prices(
+        clean_records
+    )
+
+    logger.info(
+        (
+            "Symbol pipeline completed | "
+            "symbol=%s | "
+            "affected_rows=%s | "
+            "rows_before_load=%s | "
+            "rows_after_load=%s"
+        ),
+        symbol,
+        load_result["affected_rows"],
+        load_result["rows_before_load"],
+        load_result["rows_after_load"],
+    )
+
+    return load_result
+
+def run_pipeline() -> dict[str, dict[str, int]]:
+    start_time = perf_counter()
+
+    logger.info(
+        "Daily market-data pipeline started"
+    )
 
     try:
-        logger.debug("Stage 1/3 started | stage=extract")
+        symbols = load_configured_symbols()
 
-        snapshot_path = extract_daily_data()
-
-        logger.debug(
-            "Stage 1/3 completed | "
-            "stage=extract | snapshot_path=%s",
-            snapshot_path,
+        logger.info(
+            (
+                "Pipeline configuration loaded | "
+                "symbols=%s"
+            ),
+            ",".join(symbols),
         )
 
-        logger.debug("Stage 2/3 started | stage=transform")
+        results = {}
 
-        raw_data = load_raw_snapshot(snapshot_path)
-
-        clean_records = transform_daily_records(raw_data)
-
-        if not clean_records:
-            raise RuntimeError(
-                "The transform stage produced no clean records"
+        for index, symbol in enumerate(symbols):
+            results[symbol] = (
+                run_symbol_pipeline(symbol)
             )
 
-        logger.debug(
-            "Stage 2/3 completed | "
-            "stage=transform | clean_records=%d",
-            len(clean_records),
-        )
-
-        logger.debug("Stage 3/3 started | stage=load")
-
-        load_result = load_daily_prices(clean_records)
-
-        logger.debug(
-            "Stage 3/3 completed | "
-            "stage=load | affected_rows=%d | "
-            "rows_before=%d | rows_after=%d",
-            load_result["affected_rows"],
-            load_result["rows_before_load"],
-            load_result["rows_after_load"],
-        )
+            if index < len(symbols) - 1:
+                sleep(1.2)
 
     except Exception:
-        pipeline_duration = (
-            perf_counter() - pipeline_start_time
+        duration_seconds = (
+            perf_counter() - start_time
         )
 
         logger.exception(
-            "Daily market-data pipeline failed | "
-            "duration_seconds=%.2f",
-            pipeline_duration,
+            (
+                "Daily market-data pipeline failed | "
+                "duration_seconds=%.2f"
+            ),
+            duration_seconds,
         )
 
         raise
 
-    pipeline_duration = perf_counter() - pipeline_start_time
+    duration_seconds = (
+        perf_counter() - start_time
+    )
 
     logger.info(
-        "Daily market-data pipeline completed successfully | "
-        "snapshot_path=%s | "
-        "affected_rows=%d | "
-        "rows_before=%d | "
-        "rows_after=%d | "
-        "duration_seconds=%.2f",
-        snapshot_path,
-        load_result["affected_rows"],
-        load_result["rows_before_load"],
-        load_result["rows_after_load"],
-        pipeline_duration,
+        (
+            "Daily market-data pipeline completed | "
+            "symbols_processed=%s | "
+            "duration_seconds=%.2f"
+        ),
+        len(results),
+        duration_seconds,
     )
+
+    return results
 
 if __name__ == "__main__":
     configure_logging()

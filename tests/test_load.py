@@ -337,10 +337,18 @@ def test_load_latest_daily_prices_coordinates_pipeline(
 
     call_log = []
 
+    expected_result = {
+        "affected_rows": 1,
+        "rows_before_load": 100,
+        "rows_after_load": 101,
+    }
+
     def fake_find_latest_raw_snapshot(
         raw_data_dir,
+        symbol,
     ):
         assert raw_data_dir is load.RAW_DATA_DIR
+        assert symbol == "AAPL"
 
         call_log.append(
             "find_snapshot"
@@ -379,11 +387,7 @@ def test_load_latest_daily_prices_coordinates_pipeline(
             "load"
         )
 
-        return {
-            "affected_rows": 1,
-            "rows_before_load": 100,
-            "rows_after_load": 101,
-        }
+        return expected_result
 
     monkeypatch.setattr(
         load,
@@ -409,7 +413,11 @@ def test_load_latest_daily_prices_coordinates_pipeline(
         fake_load_daily_prices,
     )
 
-    load.load_latest_daily_prices()
+    result = load.load_latest_daily_prices(
+        "AAPL"
+    )
+
+    assert result is expected_result
 
     assert call_log == [
         "find_snapshot",

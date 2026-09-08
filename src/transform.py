@@ -65,30 +65,69 @@ def load_raw_snapshot(file_path: Path) -> dict[str, Any]:
     
     return data
 
-def find_latest_raw_snapshot(raw_data_dir: Path) -> Path:
-    """Find the most recently modified raw JSON snapshot."""
+def find_latest_raw_snapshot(
+    raw_data_dir: Path,
+    symbol: str,
+) -> Path:
+    normalized_symbol = (
+        symbol.strip().upper()
+    )
 
-    if not raw_data_dir.exists():
-        raise FileNotFoundError(f"Raw data directory was not found: {raw_data_dir}")
-    
-    snapshot_paths = list(raw_data_dir.glob("*.json"))
+    if not normalized_symbol:
+        raise ValueError(
+            "The stock symbol cannot be blank"
+        )
 
-    if not snapshot_paths:
-        raise FileNotFoundError(f"No raw JSON snapshots were found in: {raw_data_dir}")
-    
+    symbol_data_dir = (
+        raw_data_dir
+        / normalized_symbol
+    )
+
+    if not symbol_data_dir.exists():
+        raise FileNotFoundError(
+            "Raw data directory does not exist "
+            f"for symbol {normalized_symbol}: "
+            f"{symbol_data_dir}"
+        )
+
+    if not symbol_data_dir.is_dir():
+        raise ValueError(
+            "Raw data path is not a directory "
+            f"for symbol {normalized_symbol}: "
+            f"{symbol_data_dir}"
+        )
+
+    snapshot_files = list(
+        symbol_data_dir.glob(
+            f"{normalized_symbol}_*.json"
+        )
+    )
+
+    if not snapshot_files:
+        raise FileNotFoundError(
+            "No raw JSON snapshots were found "
+            f"for symbol {normalized_symbol}"
+        )
+
     latest_snapshot = max(
-        snapshot_paths,
+        snapshot_files,
         key=lambda path: path.stat().st_mtime,
     )
 
     logger.debug(
-        "Latest raw snapshot selected | "
-        "path=%s | available_snapshots=%d",
+        (
+            "Latest raw snapshot selected | "
+            "symbol=%s | "
+            "snapshot=%s | "
+            "candidate_count=%s"
+        ),
+        normalized_symbol,
         latest_snapshot,
-        len(snapshot_paths),
+        len(snapshot_files),
     )
 
     return latest_snapshot
+
 
 def transform_daily_records(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
     """Convert raw Alpha Vantage daily data into clean records."""
@@ -173,10 +212,15 @@ def transform_daily_records(raw_data: dict[str, Any]) -> list[dict[str, Any]]:
 
     return clean_records
 
-def main() -> None:
+def main(
+    symbol: str = "AAPL",
+) -> None:
     """Run the transform stage using the latest raw snapshot."""
 
-    latest_snapshot = find_latest_raw_snapshot(RAW_DATA_DIR)
+    latest_snapshot = find_latest_raw_snapshot(
+        RAW_DATA_DIR,
+        symbol,
+    )
 
     raw_data = load_raw_snapshot(latest_snapshot)
 

@@ -64,7 +64,9 @@ def test_extract_daily_data_saves_valid_snapshot(
     )
 
     assert snapshot_path.exists()
-    assert snapshot_path.parent == tmp_path
+    assert snapshot_path.parent == (
+        tmp_path / "AAPL"
+    )
     assert snapshot_path.name.startswith("AAPL_")
     assert snapshot_path.suffix == ".json"
 
