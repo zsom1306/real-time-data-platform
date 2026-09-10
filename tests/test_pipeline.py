@@ -1,6 +1,23 @@
 import src.pipeline as pipeline
 import pytest
 
+@pytest.fixture(autouse=True)
+def disable_s3_archival(monkeypatch):
+    def fake_archive_raw_snapshot(
+        snapshot_path,
+        symbol,
+    ):
+        return (
+            f"s3://test-bucket/"
+            f"{symbol}/snapshot.json"
+        )
+
+    monkeypatch.setattr(
+        pipeline,
+        "archive_raw_snapshot",
+        fake_archive_raw_snapshot,
+    )
+
 def test_run_symbol_pipeline_coordinates_stages(
     monkeypatch,
 ):

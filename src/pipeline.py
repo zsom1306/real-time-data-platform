@@ -6,6 +6,7 @@ from src.load import load_daily_prices
 from src.logging_config import configure_logging
 from src.transform import (load_raw_snapshot, transform_daily_records)
 from src.config import load_configured_symbols
+from src.s3_storage import archive_raw_snapshot
 
 logger = logging.getLogger("src.pipeline")
 
@@ -19,6 +20,11 @@ def run_symbol_pipeline(
 
     snapshot_path = extract_daily_data(
         symbol
+    )
+
+    archive_raw_snapshot(
+        snapshot_path,
+        symbol,
     )
 
     raw_data = load_raw_snapshot(
