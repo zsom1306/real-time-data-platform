@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:18
+
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+
+  pipeline:
+    build:
+      context: .
+
+    image: market-data-pipeline:local
+
+    env_file:
+      - .env
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+
+      - type: bind
+        source: ./logs
+        target: /app/logs
+
+      - type: bind
+        source: ${USERPROFILE}/.aws
+        target: /root/.aws
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+volumes:
+  postgres_data:
